@@ -58,13 +58,15 @@ export default function DashboardPage() {
 
         <nav className="space-y-1">
           {[
-            { id: "Dashboard", icon: LayoutDashboard, active: true },
-            { id: "Projects", icon: FolderKanban },
-            { id: "Tasks", icon: CheckSquare, badge: "8" },
-            { id: "Team", icon: Users },
-            { id: "Settings", icon: Settings },
-            { id: "Changelog", icon: History },
-          ].map((item) => {
+            { id: "Dashboard", icon: LayoutDashboard, active: true, roles: ["Admin", "Team Lead", "Employee"] },
+            { id: "Projects", icon: FolderKanban, roles: ["Admin", "Team Lead", "Employee"] },
+            { id: "Tasks", icon: CheckSquare, badge: "8", roles: ["Admin", "Team Lead", "Employee"] },
+            { id: "Team", icon: Users, roles: ["Admin", "Team Lead"] },
+            { id: "Settings", icon: Settings, roles: ["Admin"] },
+            { id: "Changelog", icon: History, roles: ["Admin", "Team Lead"] },
+          ]
+            .filter((item) => !user || !item.roles || item.roles.includes(user.role))
+            .map((item) => {
             const Icon = item.icon;
             return (
               <a

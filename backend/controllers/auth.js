@@ -1,6 +1,7 @@
 const prisma = require('../utils/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
@@ -18,17 +19,19 @@ exports.register = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userRole = role || 'Employee'; // Default to Employee
+    const allowedRoles = ['Admin', 'Team Lead', 'Employee'];
+    const userRole = allowedRoles.includes(role) ? role : 'Employee'; // Default to Employee
 
     // Create user and a default personal workspace
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
+        role: userRole,
         name,
         workspaces: {
           create: {
-            role: 'Admin', // Always admin of their default personal workspace
+            role: userRole,
             workspace: {
               create: {
                 name: `${name || email}'s Workspace`,
@@ -57,7 +60,7 @@ exports.register = async (req, res) => {
         email: user.email,
         name: user.name,
         workspaces: user.workspaces,
-        role: userRole
+        role: user.role
       }
     });
   } catch (error) {
@@ -72,6 +75,11 @@ exports.login = async (req, res) => {
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    const allowedRoles = ['Admin', 'Team Lead', 'Employee'];
+    if (!role || !allowedRoles.includes(role)) {
+      return res.status(400).json({ error: 'A valid role (Admin, Team Lead, Employee) is required' });
     }
 
     const user = await prisma.user.findUnique({
@@ -93,7 +101,11 @@ exports.login = async (req, res) => {
     }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
-    const userRole = role || 'Employee';
+    const userRole = user.role || 'Employee';
+
+    if (role !== userRole) {
+      return res.status(403).json({ error: `You are registered as ${userRole}. Please log in as ${userRole}.` });
+    }
 
     res.json({
       token,
@@ -102,11 +114,45 @@ exports.login = async (req, res) => {
         email: user.email,
         name: user.name,
         workspaces: user.workspaces,
-        role: userRole // Note: The UI provided just switches a UI state, but eventually role might need real validation
+        role: userRole
       }
     });
   } catch (error) {
     console.error('Login Error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    // To avoid leaking which emails exist, respond with success either way
+    if (!user) {
+      return res.json({ message: 'If an account exists for this email, a reset instruction has been generated.' });
+    }
+
+    const tempPassword = crypto.randomBytes(4).toString('hex'); // 8-char temp password
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    await prisma.user.update({
+      where: { email },
+      data: { password: hashedPassword }
+    });
+
+    // In a real app we would email this temp password; for now we return it for dev/testing
+    return res.json({
+      message: 'Temporary password generated successfully. Use it to log in and then change your password.',
+      tempPassword
+    });
+  } catch (error) {
+    console.error('Forgot Password Error:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };

@@ -11,19 +11,29 @@ export default function AuthPage() {
   const [role, setRole] = useState<"Admin" | "Team Lead" | "Employee">("Team Lead");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState<string | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
+    if (!isLogin && password !== confirmPassword) {
+      setError("Passwords do not match");
+      setLoading(false);
+      return;
+    }
+
     try {
       const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
       const payload = isLogin 
-        ? { email, password } 
+        ? { email, password, role }
         : { email, password, role, name: email.split("@")[0] };
 
       const res = await fetch(`http://localhost:5000${endpoint}`, {
@@ -48,6 +58,41 @@ export default function AuthPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setForgotMessage(null);
+    setTempPassword(null);
+
+    if (!email) {
+      setError("Please enter your email above first.");
+      return;
+    }
+
+    try {
+      setForgotLoading(true);
+      const res = await fetch("http://localhost:5000/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Unable to process password reset");
+      }
+
+      setForgotMessage(data.message || "Temporary password generated.");
+      if (data.tempPassword) {
+        setTempPassword(data.tempPassword);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -163,17 +208,56 @@ export default function AuthPage() {
               </div>
             </div>
 
+            {/* Confirm Password (Create account only) */}
+            {!isLogin && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <Lock className="h-5 w-5" />
+                  </div>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-10 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-500 dark:focus:bg-slate-800"
+                    placeholder="Re-enter password"
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
             {error && (
               <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
                 {error}
               </div>
             )}
 
+            {forgotMessage && (
+              <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
+                <p>{forgotMessage}</p>
+                {tempPassword && (
+                  <p className="mt-1 text-xs">
+                    Temporary password:{" "}
+                    <span className="font-mono font-semibold">{tempPassword}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
             {isLogin && (
               <div className="flex justify-end">
-                <a href="#" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
-                  Forgot password?
-                </a>
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={forgotLoading}
+                  className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400 disabled:opacity-70"
+                >
+                  {forgotLoading ? "Sending reset..." : "Forgot password?"}
+                </button>
               </div>
             )}
 

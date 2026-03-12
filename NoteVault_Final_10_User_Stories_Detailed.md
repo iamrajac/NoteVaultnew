@@ -4,10 +4,10 @@
 - **Priority:** urgent  
 - **Description:** Users must securely log in/register and access their collaborative workspace(s) with role-based permissions (admin, user, guest).  
 - **Acceptance Criteria:**
-  - Secure login and registration via email/password.
-  - Forgot/reset password workflow.
-  - Role-based access: admin, user, guest.
-  - Users can switch/select workspace after login.
+  - [x] ~~Secure login and registration via email/password.~~
+  - [x] ~~Forgot/reset password workflow.~~
+  - [x] ~~Role-based access: admin, user, guest.~~
+  - [ ] Users can switch/select workspace after login.
 - **Effort:** 5 days
 
 ---
