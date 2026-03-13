@@ -7,7 +7,7 @@
   - [x] ~~Secure login and registration via email/password.~~
   - [x] ~~Forgot/reset password workflow.~~
   - [x] ~~Role-based access: admin, user, guest.~~
-  - [ ] Users can switch/select workspace after login.
+  - [x] ~~Users can switch/select workspace after login.~~
 - **Effort:** 5 days
 
 ---
