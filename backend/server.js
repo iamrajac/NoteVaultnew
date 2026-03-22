@@ -5,6 +5,8 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
+
+// Enable Socket.IO with CORS
 const io = new Server(server, {
   cors: {
     origin: '*',
@@ -19,24 +21,45 @@ const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const taskRoutes = require('./routes/tasks');
 const workspaceRoutes = require('./routes/workspaces');
+const notesRoutes = require('./routes/notes');
+const milestoneRoutes = require('./routes/milestones');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/workspaces', workspaceRoutes);
+app.use('/api/notes', notesRoutes);
+app.use('/api/milestones', milestoneRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'NoteVault Backend' });
 });
 
+// Collaborative Socket.IO Logic
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+  console.log(`[Socket] Editor connected: ${socket.id}`);
+
+  socket.on('join-note', (noteId) => {
+    socket.join(noteId);
+    console.log(`[Socket] User joined note room: ${noteId}`);
+  });
+
+  socket.on('leave-note', (noteId) => {
+    socket.leave(noteId);
+  });
+
+  socket.on('note-change', (data) => {
+    // Expected structure: { noteId, content, cursor }
+    // Broadcast back to everyone in the room except sender
+    socket.to(data.noteId).emit('receive-note-change', data);
+  });
+
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
+    console.log(`[Socket] Editor disconnected: ${socket.id}`);
   });
 });
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`NoteVault backend listening on port ${PORT}`);
+  console.log(`NoteVault Engine running on port ${PORT} with Collaborative WS`);
 });

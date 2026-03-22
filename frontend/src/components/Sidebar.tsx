@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { 
   LayoutDashboard, FolderKanban, CheckSquare, 
-  Users, Settings, History, LogOut 
+  Users, Settings, History, LogOut, FileText, Network, Flag 
 } from "lucide-react";
 
 export default function Sidebar({ activePage }: { activePage: string }) {
@@ -31,6 +31,9 @@ export default function Sidebar({ activePage }: { activePage: string }) {
     { id: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { id: "Projects", href: "/projects", icon: FolderKanban },
     { id: "Tasks", href: "/tasks", icon: CheckSquare, badge: "8" },
+    { id: "Milestones", href: "/milestones", icon: Flag },
+    { id: "Notes", href: "/notes", icon: FileText },
+    { id: "Graph View", href: "/graph", icon: Network },
     { id: "Team", href: "/team", icon: Users },
     { id: "Settings", href: "/settings", icon: Settings },
     { id: "Changelog", href: "/changelog", icon: History },
