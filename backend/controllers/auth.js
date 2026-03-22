@@ -27,7 +27,6 @@ exports.register = async (req, res) => {
       data: {
         email,
         password: hashedPassword,
-        role: userRole,
         name,
         workspaces: {
           create: {
@@ -69,6 +68,49 @@ exports.register = async (req, res) => {
   }
 };
 
+// Admins creating users and immediately associating them with the workspace
+exports.inviteUser = async (req, res) => {
+  try {
+    const { adminUserId, adminRole, workspaceId, newEmail, newPassword, newName, newRole } = req.body;
+
+    // RBAC: Only Admins can create new logins
+    if (adminRole !== 'Admin') {
+      return res.status(403).json({ error: 'Only Admins can invite new users to NoteVault.' });
+    }
+
+    if (!workspaceId || !newEmail || !newPassword || !newRole) {
+      return res.status(400).json({ error: 'Missing req fields (newEmail, newPassword, newRole, workspaceId)' });
+    }
+
+    const existingUser = await prisma.user.findUnique({ where: { email: newEmail } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'A user with this email already exists.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Create NoteVault user
+    const newUser = await prisma.user.create({
+      data: {
+        email: newEmail,
+        password: hashedPassword,
+        name: newName,
+        workspaces: {
+          create: {
+            workspaceId: workspaceId,
+            role: newRole // Assign them Admin, Team Lead, or Employee role specifically in this workspace
+          }
+        }
+      }
+    });
+
+    res.status(201).json({ message: 'User created and invited successfully', invitedUserId: newUser.id });
+  } catch (error) {
+    console.error('Invite Admin Error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 exports.login = async (req, res) => {
   try {
     const { email, password, role } = req.body;
@@ -101,11 +143,7 @@ exports.login = async (req, res) => {
     }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
-    const userRole = user.role || 'Employee';
-
-    if (role !== userRole) {
-      return res.status(403).json({ error: `You are registered as ${userRole}. Please log in as ${userRole}.` });
-    }
+    const userRole = role || 'Employee';
 
     res.json({
       token,
@@ -153,6 +191,68 @@ exports.forgotPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Forgot Password Error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+exports.registerWithInvite = async (req, res) => {
+  try {
+    const { token, email, password, name } = req.body;
+    
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      return res.status(400).json({ error: 'Invalid or expired invite token' });
+    }
+
+    const { projectId, workspaceId } = decoded;
+
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already in use. Log in directly instead.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // 1. Create User & associate with Workspace as 'Employee'
+    const newUser = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        name,
+        workspaces: {
+          create: {
+            workspaceId: workspaceId,
+            role: 'Employee' // Invites default to Employee Role, making them only capable of updating tasks
+          }
+        }
+      }
+    });
+
+    // 2. Add them explicitly to the Project
+    await prisma.projectMember.create({
+        data: {
+            projectId,
+            userId: newUser.id
+        }
+    });
+
+    const authToken = jwt.sign({ userId: newUser.id }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.status(201).json({ 
+      message: 'Joined NoteVault workspace and project successfully', 
+      token: authToken, 
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        role: 'Employee',
+        workspaces: [{ workspaceId, role: 'Employee' }]
+      }
+    });
+  } catch (error) {
+    console.error('Invite Register Error:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };

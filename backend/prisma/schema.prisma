@@ -2,7 +2,7 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
   engineType = "binary"
 }
 
@@ -19,29 +19,87 @@ model User {
   name      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
-  workspaces WorkspaceMember[]
+
+  workspaces      WorkspaceMember[]
+  projects        Project[]        @relation("ProjectCreator")
+  projectMembers  ProjectMember[]
+  tasks           TaskAssignee[]
 }
 
 model Workspace {
-  id          String   @id @default(cuid())
-  name        String
-  avatar      String?
-  colorTheme  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  name       String
+  avatar     String?
+  colorTheme String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  members     WorkspaceMember[]
+  members  WorkspaceMember[]
+  projects Project[]
 }
 
 model WorkspaceMember {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   userId      String
   workspaceId String
-  role        String   // e.g., 'Admin', 'Team Lead', 'Employee'
-  
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        String // e.g., 'Admin', 'Team Lead', 'Employee'
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, workspaceId])
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  workspaceId String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  members     ProjectMember[]
+  tasks       Task[]
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  status      String   @default("To Do") // To Do, In Progress, Done
+  priority    String   @default("Medium") // Low, Medium, High, Critical
+  dueDate     DateTime?
+  projectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignees   TaskAssignee[]
+}
+
+model TaskAssignee {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
 }

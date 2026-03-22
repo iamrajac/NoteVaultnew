@@ -16,7 +16,14 @@ app.use(cors());
 app.use(express.json());
 
 const authRoutes = require('./routes/auth');
+const projectRoutes = require('./routes/projects');
+const taskRoutes = require('./routes/tasks');
+const workspaceRoutes = require('./routes/workspaces');
+
 app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/workspaces', workspaceRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'NoteVault Backend' });
