@@ -1,14 +1,19 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
-import { ArrowLeft, Save, CheckCircle2, ShieldAlert, Users, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, CheckCircle2, ShieldAlert, Loader2 } from "lucide-react";
 
 export default function CollaborativeEditor() {
   const { id: noteId } = useParams();
   const router = useRouter();
   
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const localChangeRef = useRef(false);
+  const contentRef = useRef<string>("");
+
   const [user, setUser] = useState<any>(null);
   const [workspace, setWorkspace] = useState<any>(null);
   const [note, setNote] = useState<any>(null);
@@ -34,7 +39,18 @@ export default function CollaborativeEditor() {
       .then(data => {
         setNote(data);
         setContent(data.content || "");
+        contentRef.current = data.content || "";
         setStatus(data.status);
+
+        if (editorRef.current) {
+          editorRef.current.innerHTML = data.content || "";
+        }
+
+        const tags = (data.tags || "").split(",").map((t: string) => t.trim().toLowerCase());
+        if (tags.includes("deployed")) setCiStatus("deployed");
+        else if (tags.includes("ci-passed")) setCiStatus("passed");
+        else if (tags.includes("ci-failed")) setCiStatus("failed");
+        else setCiStatus("idle");
       });
   }, [noteId]);
 
@@ -45,9 +61,18 @@ export default function CollaborativeEditor() {
 
     s.emit("join-note", noteId);
 
+    // Enable image object resizing and table editing for user friendliness
+    // Using string param due to TypeScript execCommand typing
+    document.execCommand("enableObjectResizing", false, "true");
+    document.execCommand("enableInlineTableEditing", false, "true");
+
     s.on("receive-note-change", (data) => {
       // Very naive CRDT replacement. In production, use Yjs
-      setContent(data.content);
+      if (!localChangeRef.current && data.content !== contentRef.current) {
+        setContent(data.content);
+        contentRef.current = data.content;
+        if (editorRef.current) editorRef.current.innerHTML = data.content;
+      }
     });
 
     // Simulate active users (in a real app, socket namespace tracking)
@@ -59,25 +84,130 @@ export default function CollaborativeEditor() {
     };
   }, [noteId]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
+  const handleContentChange = (e: React.FormEvent<HTMLDivElement>) => {
+    const newContent = e.currentTarget.innerHTML;
     setContent(newContent);
-    // Broadcast instantly
+    contentRef.current = newContent;
+    localChangeRef.current = true;
+
     if (socket) {
       socket.emit("note-change", { noteId, content: newContent });
     }
+
+    window.setTimeout(() => {
+      localChangeRef.current = false;
+    }, 250);
+  };
+
+  const applyRichText = (command: string, value?: string) => {
+    document.execCommand(command, false, value as string | undefined);
+    const editor = editorRef.current;
+    if (editor) {
+      setContent(editor.innerHTML);
+      contentRef.current = editor.innerHTML;
+      if (socket) socket.emit("note-change", { noteId, content: editor.innerHTML });
+    }
+  };
+
+  const handleInsertImage = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!/^image\/(png|jpe?g|svg\+xml)$/i.test(file.type)) {
+      alert("Please choose a PNG/JPEG/JPG/SVG image.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = reader.result as string;
+      const editor = editorRef.current;
+      if (editor) {
+        editor.focus();
+        document.execCommand("insertImage", false, src);
+        const imageElement = editor.querySelector("img[src='" + src + "']") as HTMLImageElement;
+        if (imageElement) {
+          imageElement.style.maxWidth = "100%";
+          imageElement.style.height = "auto";
+        }
+        setContent(editor.innerHTML);
+        contentRef.current = editor.innerHTML;
+        if (socket) socket.emit("note-change", { noteId, content: editor.innerHTML });
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleManualSave = async () => {
+    if (!noteId) return;
     setIsSaving(true);
-    // There isn't an explicit PUT endpoint yet, but we can simulate saving mechanism or update via existing API
-    // Extending backend to handle PATCH /content in the future.
-    // Let's pretend it saves via a generic backend path we define.
-    setTimeout(() => setIsSaving(false), 800);
+
+    try {
+      const res = await fetch(`http://localhost:5000/api/notes/${noteId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          title: note?.title,
+          status,
+          authorId: user?.id
+        })
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setNote(updated);
+        setContent(updated.content ?? content);
+        setStatus(updated.status ?? status);
+      }
+    } catch (err) {
+      console.error('Failed to save note:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const [ciStatus, setCiStatus] = useState<"idle" | "running" | "passed" | "failed" | "deployed">("idle");
+
+  const runCiPipeline = async () => {
+    if (!noteId) return;
+    setCiStatus("running");
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    const passed = Math.random() > 0.15;
+    setCiStatus(passed ? "passed" : "failed");
+
+    if (passed) {
+      // store CI success marker in tags so it's persistent
+      const currentTagSet = new Set((note?.tags || "").split(",").filter(Boolean));
+      currentTagSet.delete("ci-failed");
+      currentTagSet.add("ci-passed");
+      await fetch(`http://localhost:5000/api/notes/${noteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: Array.from(currentTagSet).join(",") })
+      });
+    }
+  };
+
+  const deployPipeline = async () => {
+    if (ciStatus !== "passed") return;
+    setCiStatus("deployed");
+    const currentTagSet = new Set((note?.tags || "").split(",").filter(Boolean));
+    currentTagSet.add("deployed");
+    await fetch(`http://localhost:5000/api/notes/${noteId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tags: Array.from(currentTagSet).join(",") })
+    });
   };
 
   const handleUpdateStatus = async (newStatus: string) => {
-    if (!user) return;
+    if (!user || !noteId) return;
     try {
       const res = await fetch(`http://localhost:5000/api/notes/${noteId}/status`, {
         method: "PATCH",
@@ -87,8 +217,14 @@ export default function CollaborativeEditor() {
           approverId: newStatus === "Approved" ? user.id : null
         })
       });
-      if (res.ok) setStatus(newStatus);
-    } catch(e) {}
+      if (res.ok) {
+        const updated = await res.json();
+        setStatus(updated.status ?? newStatus);
+        setNote(updated);
+      }
+    } catch (e) {
+      console.error('Failed to update status:', e);
+    }
   };
 
   if (!note) {
@@ -108,7 +244,10 @@ export default function CollaborativeEditor() {
           <div>
             <h1 className="text-sm font-bold md:text-base">{note.title}</h1>
             <div className="flex items-center space-x-3 text-[11px] font-medium text-slate-500">
-               <span>Authored by {note.author?.name}</span>
+               <span>Authored by {note.author?.name || "Unknown"}</span>
+               <span>
+                 Last edited by {note.approver?.name || note.author?.name || "Unknown"}
+               </span>
                {status === "Pending Review" && <span className="text-amber-500">Needs Approval</span>}
                {status === "Approved" && <span className="text-emerald-500 flex items-center space-x-1"><CheckCircle2 className="h-3 w-3" /> <span>Approved</span></span>}
             </div>
@@ -148,13 +287,39 @@ export default function CollaborativeEditor() {
 
       {/* Editor Canvas */}
       <main className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-[#0B1120] relative">
-         <div className="mx-auto max-w-4xl py-12 px-6">
-            <textarea
-              autoFocus
-              value={content}
-              onChange={handleChange}
-              placeholder="Start typing your document..."
-              className="w-full resize-none bg-transparent text-lg text-slate-700 outline-none placeholder:text-slate-300 dark:text-slate-300 dark:placeholder:text-slate-700 min-h-[500px] leading-relaxed"
+         <div className="mx-auto max-w-4xl py-6 px-6">
+            <div className="mb-3 flex flex-wrap gap-2 rounded-xl bg-white p-2 shadow-sm dark:bg-slate-800">
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("bold")}>Bold</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("italic")}>Italic</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("underline")}>Underline</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("formatBlock", "H2")}>H2</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("insertUnorderedList")}>Bullet</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("insertOrderedList")}>Numbered</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("formatBlock", "PRE")}>Code</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("undo")}>Undo</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={() => applyRichText("redo")}>Redo</button>
+              <button className="rounded-md px-3 py-1 text-xs font-semibold" onClick={handleInsertImage}>Image</button>
+              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/svg+xml" onChange={handleImageUpload} className="hidden" />
+            </div>
+            <div className="mb-4 flex flex-col gap-2 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-slate-600 dark:bg-slate-700 dark:text-slate-300">CI: {ciStatus}</span>
+                <button onClick={runCiPipeline} className="rounded-lg bg-indigo-600 px-3 py-1 text-white">Run CI</button>
+                <button disabled={ciStatus !== "passed"} onClick={deployPipeline} className="rounded-lg bg-emerald-600 px-3 py-1 text-white disabled:opacity-40">Deploy</button>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-2 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                CI/CD helps ensure note changes are tested and reviewed before deployment.
+                Run CI to validate content (spellcheck, style checks, custom rules), then Deploy to promote this note to the shared library state.
+                In future, this can connect to formal pipelines, approval gates and audit history.
+              </div>
+            </div>
+            <div
+              ref={editorRef}
+              id="rich-editor"
+              contentEditable
+              suppressContentEditableWarning
+              onInput={handleContentChange}
+              className="min-h-[500px] rounded-xl border border-slate-300 bg-white p-4 text-lg text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
          </div>
       </main>

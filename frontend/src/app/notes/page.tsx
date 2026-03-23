@@ -144,8 +144,11 @@ export default function NotesIndex() {
                           </div>
                        </div>
                        <h3 className="mb-2 text-lg font-bold text-slate-900 dark:text-white leading-tight">{note.title}</h3>
-                       <p className="text-xs font-semibold text-slate-400 max-w-full overflow-hidden text-ellipsis whitespace-nowrap mb-6">
-                         Last edited by {note.author?.name || "Unknown"}
+                       <p className="text-xs font-semibold text-slate-400 max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                         Last edited by {(note.approver?.name || note.author?.name) || "Unknown"}
+                       </p>
+                       <p className="text-xs font-semibold text-slate-400 mt-1">
+                         CI/CD: {(note.tags || "").includes("deployed") ? "Deployed" : (note.tags || "").includes("ci-passed") ? "Passed" : (note.tags || "").includes("ci-failed") ? "Failed" : "Idle"}
                        </p>
                     </div>
                     

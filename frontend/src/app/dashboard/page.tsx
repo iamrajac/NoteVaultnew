@@ -80,9 +80,8 @@ export default function DashboardPage() {
         // Embellish tasks with project name
         allTasks = allTasks.map(t => ({
           ...t,
-          projectName: loadProjects.find(p => p.id === t.projectId)?.name || "Unknown"
+          projectName: loadProjects.find((p: any) => p.id === t.projectId)?.name || "Unknown"
         }));
-        
         setTasks(allTasks);
       } else {
         setTasks([]);
